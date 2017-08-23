@@ -1,0 +1,583 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html">
+		<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+			<title>Imaging Solutions v2.3</title>
+				<HTA:APPLICATION 
+					ID="maging Solutions"
+					APPLICATIONNAME="Imaging Solutions"
+					BORDER="none"
+					CAPTION="yes"
+					CONTEXTMENU="no"
+					ICON="icon.ico"
+					INNERBORDER="no"
+					NAVIGABLE="true"
+					SCROLL="no"
+					SCROLLFLAT="yes"
+					SELECTION="no"
+					SHOWINTASKBAR="yes"
+					SINGLEINSTANCE="yes"
+					SYSMENU="yes"
+					TITLEBAR="no"
+					VERSION="2.2"/>
+
+			<script type="text/vbscript">
+			'******************************************************************************'
+			'	Global Variables '
+			'******************************************************************************'
+				dim varPanel
+					varPanel = 1
+				dim logHTA
+					logHTA = "\\cm1\source files\\" & strSerialNum & ".log"
+				Dim oTSProgressUI
+					Set oTSProgressUI = CreateObject("Microsoft.SMS.TSProgressUI")
+						oTSProgressUI.CloseProgressDialog()
+				Dim strComputer
+					strComputer = "."
+				Dim strSerialNum
+				Dim strUser
+				Dim oTSEnvironment
+					Set oTSEnvironment = CreateObject("Microsoft.SMS.TSEnvironment")
+
+			'******************************************************************************'
+			'	Window Onload Event '
+			'******************************************************************************'
+				Sub Window_OnLoad
+					'******************************************************************************'
+					'	ComputerName Field Default Value '
+					'******************************************************************************'
+						Set objWMIService = GetObject("winmgmts:" & "{impersonationLevel=impersonate}!\\" & strComputer & "\root\cimv2")
+						Set colSMBIOS = objWMIService.ExecQuery("Select * from Win32_BIOS")
+							For Each objSMBIOS in colSMBIOS
+								strSerialNum = objSMBIOS.SerialNumber
+							Next
+						window.document.getElementById("ComputerName").value = strSerialNum
+				End Sub
+
+			'******************************************************************************'
+			'	Size & Positioning '
+			'******************************************************************************'
+				winWidth=800
+				winHeight=600
+				window.resizeto winWidth,winHeight
+				centerX=(screen.width-winWidth)/2
+				centerY=(screen.height-winHeight)/2
+				window.moveto centerX,centerY
+				posX=0
+				posY=0
+				move=0
+
+			'******************************************************************************'
+			'	Function for Dragging Window '
+			'******************************************************************************'
+				Function setPos()
+					posX=window.event.screenX
+					posY=window.event.ScreenY
+					move=1
+				End Function
+
+				Function moving()
+					If move=1 Then
+					moveX=0
+					moveY=0
+					moveX=window.event.screenX-posX
+					moveY=window.event.screenY-posY
+					window.moveto(window.screenLeft+moveX),(window.screenTop+moveY)
+					setPos()    
+					End if
+				End Function
+
+				Function stopMoving()
+					move=0
+				End Function
+				
+			'******************************************************************************'
+			'	Function to Close HTA '
+			'******************************************************************************'
+				Function closeHTA()
+					self.close
+				End Function
+
+			'******************************************************************************'
+			'	Validate Variables '
+			'******************************************************************************'
+				Sub runValidation
+					If varPanel = 1 Then
+						If ComputerName.value = "" Then
+							msgbox("Please Enter a Computer Name")
+						ElseIf Username.value = "" Then
+							msgbox("Please Enter a Username")
+						Else
+							runInstall
+						End If
+					ElseIf varPanel = 2 Then
+						runRefresh
+					ElseIf varPanel = 3 Then
+						runBackup
+					End If
+				End Sub
+
+			'******************************************************************************'
+			'	Configure Task Sequence Variables '
+			'******************************************************************************'
+				Sub runInstall
+						'msgbox("Test:  " & varPanel)'
+					'************************************************************'
+					' Image Version  '
+					'************************************************************'
+						If ImageChoice.value = "1" Then
+							oTSEnvironment("swn_OSPicker") = "Win7EntSP1x64"
+								'msgbox("OSImage Picker: " & oTSEnvironment("swn_OSPicker"))'
+						End If
+					'************************************************************'
+					' Computer Name  '
+					'************************************************************'
+						oTSEnvironment("OSDComputerName") = computername.value
+							'msgbox("ComputerName TSValue:  " & oTSEnvironment("OSDCOMPUTERNAME"))'
+					'************************************************************'
+					' AD OU '
+					'************************************************************'	
+						If ADOU.value = "1" Then
+							oTSEnvironment("swn_ADOU") = "laptops"
+								'msgbox("AD OU TSValue:  " & oTSEnvironment("swn_ADOU"))'
+						ElseIf ADOU.value = "2" Then
+							oTSEnvironment("swn_ADOU") = "laptopsnouac"
+								'msgbox("AD OU TSValue:  " & oTSEnvironment("swn_ADOU"))'
+						ElseIf ADOU.value = "3" Then
+							oTSEnvironment("swn_ADOU") = "desktops"
+								'msgbox("AD OU TSValue:  " & oTSEnvironment("swn_ADOU"))'
+						ElseIf ADOU.value = "4" Then
+							oTSEnvironment("swn_ADOU") = "desktopsnouac"
+								'msgbox("AD OU TSValue:  " & oTSEnvironment("swn_ADOU"))'
+						ElseIf ADOU.value = "5" Then
+							oTSEnvironment("swn_ADOU") = "vdiworkstations"
+								'msgbox("AD OU TSValue:  " & oTSEnvironment("swn_ADOU"))'
+						End If
+					'************************************************************'
+					' Set Primary User '
+					'************************************************************'
+						oTSEnvironment("SMSTSUdaUsers") = Username.value
+					'************************************************************'
+					' Job Role Picker '
+					'************************************************************'
+					'	For Each oJobRole in rJobRole'
+					'		If oJobRole.Checked Then'
+					'			oTSEnvironment("swn_JobRole") = oJobRole.value'
+					'			msgbox("You slected " & oJobRole.value & ".")'
+					'		End If'
+					'	Next'
+					'************************************************************'
+					' Applications - Non-Licensed '
+					'************************************************************'
+					
+					'************************************************************'
+					' Applications - Licensed '
+					'************************************************************'
+					closeHTA()
+				End Sub
+				
+				Sub runRefresh
+					msgbox("Test" & varPanel)
+				End Sub
+				
+				Sub runBackup
+					msgbox("Test" & varPanel)
+				End Sub
+			'******************************************************************************'
+			'	Dump Variables '
+			'******************************************************************************'
+				Sub dumpvariables
+						Set objFSO=CreateObject("Scripting.FileSystemObject")
+							Set objFile = objFSO.OpenTextFile(logHTA,8,True)
+							For each varTSVar in oTSEnvironment.GetVariables 
+								objFile.WriteLine varTSVar & " = " & oTSEnvironment(varTSVar)
+							Next
+					objFile.Close
+				End Sub
+			'******************************************************************************'
+			'	Panel Browsing - Change page and set variables '
+			'******************************************************************************'
+				Sub setPanel1
+					Panel(1)
+					varPanel = 1
+				End Sub
+				
+				Sub setPanel2
+					Panel(2)
+					varPanel = 2
+				End Sub
+				
+				Sub setPanel3
+					Panel(3)
+					varPanel = 3
+				End Sub
+
+			</script>
+            
+			<script type="text/javascript">
+			'******************************************************************************'
+			'	Panel Switching '
+			'******************************************************************************'
+				var panels = new Array("","panel1","panel2","panel3"); 
+				function panel(tab) { 
+    				for (i=1; i<panels.length; i++) { 
+        				if (i == tab) { 
+            				document.getElementById("tab"+i).className = "tabs tabs1"; 
+            				document.getElementById("panel"+i).style.display = "block"; 
+        					} 
+						else { 
+            				document.getElementById("tab"+i).className = "tabs tabs0"; 
+            				document.getElementById("panel"+i).style.display = "none"; 
+				        	} 
+    					} 
+					}
+			</script> 
+
+<style type="text/css">
+	/* Layout Styles - for designing the overall template */
+            html,body {
+                margin:0;
+                padding:5px;
+                position:relative;
+            }
+            html {
+            	border: 2px solid #00A6DE;
+            }
+            #divheader {
+                width:100%;
+                height:50px;
+                position: relative;
+            }
+			#divcontent {
+				width: 100%;
+			}
+			#divtopnav {
+				height: 33px;
+				width: 100%;
+				position: relative;
+			}
+            #divbody {
+				min-height: 414px;
+				height: 100%;
+                width:100%;
+				position: relative;
+            }
+			#divbottomnav {
+				height: 29px;
+				width: 100%;
+				position: relative;
+			}
+            #divfooter {
+                height:50px;
+                width:100%;
+                position: relative;
+            }
+			body,td,th,h1 {
+        		font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+        		font-size: 10px;
+    		}
+	/* Logo Styles - for branding */
+            #logo1 {
+                width: 112px;
+                height: 49px;
+                float: left;
+            }
+            #tagline {
+                position: absolute;
+                bottom: 0px;
+                right: 0px;
+                font-size: 16px;
+                font-weight:600;
+                float: right;
+            }
+            #logo2 {
+                position: absolute;
+                bottom: 0px;
+                right: 0px;
+                width: 	87px;
+                height: 43px;
+                float: right;
+            }
+	/* Navigation Styles - for creating navigation bar */
+			#topnav {
+				width: 100%;
+				float: left;
+				background-color: #f2f2f2;
+				border-bottom: 1px solid #ccc;
+				border-right: 1px solid #ccc;
+				border-top: 1px solid #ccc;
+			}
+			#topnav ul {
+				list-style: none;
+				width: 100%;
+				margin: 0 auto;
+				padding: 0;
+			}
+			#topnav li {
+				float: left;
+			}
+			#topnav li a {
+				display: block;
+				padding: 8px 15px;
+				text-decoration: none;
+				font-weight: bold;
+				color: #003050;
+				border-right: 1px solid #ccc;
+			}
+			#topnav li:first-child a {
+				border-left: 1px solid #ccc;
+			}
+			#topnav li a:hover {
+				color: #00A6DE;
+				background-color: #fff;
+			}
+			#topnav li a:active {
+				color: #00A6DE;
+				background-color: #FFF;
+			}
+			/* ------------------------ */
+			#bottomnav {
+				position: absolute;
+				bottom: 0px;
+				width: 100%;
+				float: left;
+				background-color: #F2F2F2;
+				border-bottom: 1px solid #ccc;
+				border-left: 1px solid #ccc;
+				border-top: 1px solid #ccc;
+				border-right: 1px solid #ccc;	/* Remove this line if using more than one nav button */
+			}
+			#bottomnav ul {
+				list-style: none;
+				width: 100%;
+				margin: 0 auto;
+				padding: 0;
+			}
+			#bottomnav li {
+				float: right;
+			}
+			#bottomnav li a {
+				display: block;
+				padding: 6px 12px;
+				text-decoration: none;
+				font-weight: bold;
+				color: #003050;
+				border-left: 1px solid #ccc;
+			}
+			#bottomnav li:first-child a {
+				border-right: 1px solid #ccc;
+			}
+			#bottomnav li a:hover {
+				color: #FFF;
+				background-color: #CCC;
+			}
+	/* Body Styles - for managing content in the body panels */
+			.bodypanel { 
+				height: 100%; 
+				padding: 0px;
+				position: relative; 
+				width: 100%; 
+				z-index: 0; 
+			} 
+			#divbodysub {
+				padding-top: 5px;
+			}
+			#divcontainer {
+				width:773px; 
+				border: 1px solid #CCCCCC; 
+				float:left;
+				padding: 0px;
+				height: 105px;
+			}
+			#divcontainersplit {
+				width:386px; 
+				border: 1px solid #CCCCCC; 
+				float:left;
+				padding: 0px;
+				height: 105px;
+			}
+			#divcontainersplit:first-child {
+				border-right: 0px;
+			}
+			.divcontainersub {
+				padding: 2px;
+			}
+			.containertitle {
+				text-align:center;
+				background-color: #F2F2F2;
+				border-bottom: 1px solid #CCCCCC;
+			}
+			/* Input Styles - for changing the look of input fields */
+			.inputlabels {
+
+			}
+			.inputfields {
+        		font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+        		font-size: 10px;
+				border: 1px solid #00a6de;
+			}
+			.helpbutton {
+				padding-left: 2px;
+			}
+			
+    </style>
+
+	</head>
+
+
+	<body>
+		
+         <div class="pagewrap">
+           
+            <div id="divheader" onmousedown="VBScript:Call setPos()" onmousemove="VBScript:Call moving()" onmouseup="VBScript:Call stopMoving()">
+            	<div>
+                	<img id="logo1" src="images/logo/logo.png" />
+                </div>
+                <div id="tagline">
+                	Imaging Solutions v2.3
+                </div>
+            </div>
+
+<!-- BEGIN Browsing Tabs -->             
+            <div id="divcontent">
+                    <div id="divtopnav">
+                        <div id="topnav">
+                            <ul>
+                                <li id="tab1" onclick="setpanel1"><a href="#" tabindex="1002">Install</a></li>
+                                <li id="tab2" onclick="setpanel2"><a href="#" tabindex="1003">Refresh</a></li>
+                                <li id="tab3" onclick="setpanel3"><a href="#" tabindex="1004">Backup</a></li>
+                            </ul>
+                        </div>
+                    </div>
+<!-- END Browsing Tabs --> 
+
+<!-- BEGIN Install Page -->                    
+                    <div id="divbody">
+                        <div id="panel1" class="bodypanel" style="display:block;">
+							<div id="divbodysub">
+                            	Description: This page is for install-only scenarios of a specific OS. No backups or user data migration will occur on the machine.
+							</div>
+							
+                            <div id="divbodysub">
+                            	<label for="ImageName">Choose the OS Image:</label>
+                                    <select id="ImageName" class="inputfields" tabindex="1" name="ImageChoice" size="1">
+                                        <option value="1">Win 7 Ent x64</option>
+                                    </select><img class="helpbutton" src="images/help.png"images/Metrostation/MB_0011_info3_blue.png"" width="16" height="16" alt="Choose the image to use">
+									<script type="text/javascript">ImageName.focus();</script>
+							</div>
+                            
+                            <div id="divbodysub" style="float:left">
+                                <div id="divcontainersplit">
+                                    <div class="containertitle">
+                                    	Computer Information
+                                    </div>
+                                    <div class="divcontainersub">
+										<label for="ComputerName">Computer Name:</label>
+                                    		<input id="ComputerName" class="inputfields" name="ComputerName" tabindex="2" type="text" size="57" maxlength="15" disabled="true">
+                                    </div>
+									<div class="divcontainersub">
+                                        <label for="ADOU">Active Directory OU:</label>
+                                            <select id="ADOU" class="inputfields" tabindex="3" name="ADOU" size="1" style="width:278px;">
+                                                <option value="1">Laptops</option>
+                                                <option value="2">Laptops - No UAC</option>
+                                                <option value="3">Desktops</option>
+                                                <option value="4">Desktops - No UAC</option>
+												<option value="5">VDI Workstations</option>
+                                            </select>
+                                     </div>
+                                    
+                                </div>
+                                
+								<div id="divcontainersplit">
+                                    <div class="containertitle">
+                                    	User Information
+                                    </div>
+                                    <div class="divcontainersub">
+										<label for="Username">Domain\Username:</label>
+                                    		<input id="Username" class="inputfields" name="Username" tabindex="4" type="text" size="55"/>
+                                    </div>
+									<div class="divcontainersub">
+                                        <div>
+                                        	Job Role:
+                                        </div>
+                                        <div class="divcontainersub">
+											The username entered in the above field will determine what role based applications are installed based on the Job Role collection they are apart of.</li>
+										</div>
+									</div>
+                                </div>
+
+                            <div id="divbodysub">
+                                <div id="divcontainer" >
+                                	<div class="containertitle">
+                                    	Applications - Non-Licensed
+                                    </div>
+                                    <div class="divcontainersub">
+									<!--	<input type="checkbox" name="7zip" value="7zip" tabindex="9">7-zip
+                                        <input type="checkbox" name="iTunes" value="iTunes" tabindex="10">iTunes
+                                    -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="divbodysub">
+                                <div id="divcontainer" >
+                                	<div class="containertitle">
+                                    	Applications - Licensed
+                                    </div>
+                                    <div class="divcontainersub">
+									<!--	<input type="checkbox" name="AdobeAcro9Pro" value="AdobeAcro9Pro" tabindex="51">Adobe Acrobat v9 Pro
+                                        <input type="checkbox" name="Cygnet8" value="Cygnet8" tabindex="52">Cygnet v8
+                                    -->
+                                    </div>
+                                </div>
+                            </div>
+
+                             </div>
+                        </div>
+<!-- END Install Page -->
+
+<!-- BEGIN Refresh Page -->
+						<div id="panel2" class="bodypanel" style="display:none;">
+							<div id="divbodysub">
+                            	Description: This page is for the reinstallation of an OS to a machine that has been previously imaged. This process gives some options for data backup.
+							</div>
+
+                            <div id="divbodysub">
+                            	<label for="ImageName">Choose the OS Image:</label>
+                                    <select id="ImageName" class="inputfields" tabindex="1" name="ImageName" size="1">
+                                        <option value="1">Win 7 Ent x64</option>
+                                        <option value="2">Other</option>
+                                    </select><img class="helpbutton" src="images/help.png" width="15" height="15" alt="Choose the image to use">
+							</div>
+						</div>
+<!-- END Refresh Page -->
+
+<!-- BEGIN Backup Page -->
+                        <div id="panel3" class="bodypanel" style="display:none;">
+                            Backup
+                        </div>
+                    </div>
+<!-- END Backup Page -->
+					<div id="divbottomnav">
+                    	<div id="bottomnav">
+                            <ul>
+	                            <li onclick="close ()"><a href="#" tabindex="1001">Quit</a></li>
+                                <li onClick="runValidation"><a href="#" tabindex="1000">Run</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+			</div>
+
+            <div id="divfooter">
+           		<div>
+                	<img id="logo2" src="images/logo/sublogo.png" />
+                </div>
+        	</div>
+        
+        </div>
+	
+</body>
+</html>
+
