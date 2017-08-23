@@ -1,0 +1,107 @@
+<job id="ZTI-SpawnProcess">
+   <script language="VBScript" src="ZTIUtility.vbs"/>
+   <script language="VBScript">
+
+
+' //***************************************************************************
+' // ***** Script Header *****
+' //
+' // Solution:  Solution Accelerator for Business Desktop Deployment
+' // File:      ZTI-SpawnProcess.wsf
+' //
+' // Purpose:   Run a process out of band of the Task Sequencer
+' //
+' // Usage:     cscript ZTI-SpawnProcess.wsf /cmd:"<command to run>"
+' //
+' // Customer Build Version:      1.0.0
+' // Customer Script Version:     1.0.0
+' //
+' // Microsoft History:
+' //
+' // Customer History:
+' // 1.0.0     MDM  03/25/2008  Created initial version.
+' // 
+' //
+' // ***** End Header *****
+' //***************************************************************************
+
+
+'//----------------------------------------------------------------------------
+'//
+'//  Global constant and variable declarations
+'//
+'//----------------------------------------------------------------------------
+
+'Option Explicit
+
+Dim iRetVal
+
+  
+'//----------------------------------------------------------------------------
+'//  End declarations
+'//----------------------------------------------------------------------------
+
+
+'//----------------------------------------------------------------------------
+'//  Main routine
+'//----------------------------------------------------------------------------
+
+On Error Resume Next
+iRetVal = ZTIProcess
+ProcessResults iRetVal
+On Error Goto 0
+
+
+'//---------------------------------------------------------------------------
+'//
+'//  Function:    ZTIProcess()
+'//
+'//  Input:    None
+'// 
+'//  Return:    Success - 0
+'//        Failure - non-zero
+'//
+'//  Purpose:    Perform main ZTI processing
+'//        
+'//---------------------------------------------------------------------------
+Function ZTIProcess()
+
+    iRetVal = Success
+
+    on error resume next
+
+    oLogging.CreateEntry "------------ Initialization ZTI-SpawnProcess.wsf -------------", LogTypeInfo
+
+	' Get the command value.
+	
+	If oEnvironment.Item("cmd") <> "" then
+		sCommand = oEnvironment.Item("cmd")
+        oLogging.CreateEntry "Command to run out of band: " & sCommand, LogTypeInfo
+
+        Err.Clear
+        oShell.Run sCommand,1,False
+
+        If Err.Number Then
+            oLogging.CreateEntry "Error 0X" & CStr(Hex(Err.Number)) & " occurred", LogTypeError
+            If Err.Description <> "" Then
+                oLogging.CreateEntry "Error description: " & Err.Description & ".", LogTypeError
+            End If
+            iRetVal = Failure
+        Else
+            oLogging.CreateEntry "Program launched without error.", LogTypeInfo
+        End If
+
+	Else
+		oLogging.CreateEntry "/cmd switch not found. Exiting script.", LogTypeError
+		iRetVal = Failure
+	End if
+
+    oLogging.CreateEntry "------------ Departing ZTI-SpawnProcess.wsf -------------", LogTypeInfo
+
+    ZTIProcess = iRetVal
+
+End Function
+
+   </script>
+</job>
+

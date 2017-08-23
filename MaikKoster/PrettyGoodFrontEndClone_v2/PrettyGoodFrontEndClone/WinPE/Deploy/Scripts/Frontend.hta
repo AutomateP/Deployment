@@ -1,0 +1,299 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<!--
+
+' //////////////////////////////////////////////////
+' //
+' // Script File:
+' //
+' //  Frontend.hta
+' //
+' //   This script drives the Frontend for ConfigMgr 2007.
+' //   It's a clone of the original PrettyGoodFrontEnd
+' //   of Johan Arwidmark (http://PrettyGoodFrontEnd.codeplex.com
+' //
+' //   Most parts rewritten to work with the Deployment Webservice
+' //
+' //   Author: Maik Koster
+' //   URL: http://mdtcustomizations.codeplex.com
+' //   
+' //   Disclaimer
+' //   This script is provided "AS IS" without express 
+' //   or implied warranty of any kind.
+' //
+' //////////////////////////////////////////////////
+
+-->
+<head>
+    <title>Frontend for ConfigMgr 2007</title>
+    <meta content="text/VBScript" http-equiv="content-script-type" />
+    <link href="Wizard.css" type="text/css" rel="stylesheet">
+    <hta:application id="oWizard" applicationname="" icon="Wizard.ico" 
+        scroll="no" 
+        selection="no"
+        innerborder="no" 
+        border="normal" 
+        singleinstance="no" 
+        sysmenu="yes" 
+        maximizebutton="no"
+        minimizebutton="no" />
+
+    <script language="vbscript" type="text/vbscript" src="ZTIUtility.vbs"></script>
+
+    <script language="vbscript" type="text/vbscript">
+    <!--
+
+Sub Window_onload
+
+'on error resume next
+
+	CenterWindow 640,480
+	
+	ButtonFinish.disabled = true
+
+	GetFrontendData()
+
+    PrintOut "Serial Number: " & oEnvironment.Item("SERIALNUMBER")
+    PrintOut "Model: " & oEnvironment.Item("MODEL")
+    PrintOut "MAC Address: " & oEnvironment.Item("MACADDRESS001")
+    PrintOut "Default Gateway: " & oEnvironment.Item("DEFAULTGATEWAY001")
+	
+End Sub	
+
+
+
+Sub CenterWindow( widthX, heightY )
+    self.ResizeTo widthX, heightY 
+    self.MoveTo (screen.Width - widthX)/2, (screen.Height - heightY)/2
+End Sub
+
+
+Sub GetFrontendData
+    On Error Resume Next
+  	sComputerName.value = oEnvironment.Item("OSDCOMPUTERNAME")
+  	sComputerDescription.value = oEnvironment.Item("COMPUTERDESCRIPTION")
+  	
+    set oXMLDoc = oUtility.CreateXMLDOMObjectEx("OUList.xml")
+    CreateOUEntries oXMLDoc.documentElement, 0
+
+    ' Create list of Roles and mark the already selected ones
+    Set oXMLDoc = oUtility.CreateXMLDOMObjectEx("RoleList.xml")
+    Set oXMLDocCR = oUtility.CreateXMLDOMObjectEx("ComputerRoleList.xml")
+    For Each node In oXMLDoc.documentElement.childNodes
+        Set objOption = Document.createElement("input")
+        objOption.Type = "checkbox"
+        objOption.id = "Roles"
+        objOption.Name = "Roles"
+        objOption.value = node.selectSingleNode("Role").text
+        
+        Set objText = Document.createTextNode(node.selectSingleNode("Role").text)
+        Set objBr = Document.createElement("br")
+        
+        Document.getElementById("RoleList").appendChild(objOption)
+        Document.getElementById("RoleList").appendChild(objText)
+        Document.getElementById("RoleList").appendChild(objBr)
+        
+        ' Loop through list of Computer Roles
+        found = False
+        For Each CRnode In oXMLDocCR.documentElement.childNodes
+            If CRnode.Text = node.selectSingleNode("Role").text Then
+                found = True
+                Exit For
+            End If
+        Next
+        
+        If found Then
+            objOption.checked = True
+        Else
+            objOption.checked = False
+        End If
+    Next
+
+    Set oXMLDoc = oUtility.CreateXMLDOMObjectEx("TaskSequenceList.xml")
+    For Each node In oXMLDoc.documentElement.childNodes
+        Set objOption = Document.createElement("OPTION")
+        objOption.Text = node.selectSingleNode("Name").text
+        objOption.Value = node.selectSingleNode("CollectionID").text
+        ddCollectionList.Add(objOption) 
+    Next
+
+		
+End Sub
+
+Sub CreateOUEntries(ParentNode, Level)
+    Dim MyNode
+    Dim objOption
+    Dim sOUText
+    Dim found
+    Dim x
+        
+    For Each MyNode in ParentNode.ChildNodes
+        Set objOption = Document.createElement("OPTION")
+        
+        sOUText = MyNode.selectSingleNode("Path").text
+        
+        If InStr(sOUText, "Domain Controllers") Then
+            ' Do nothing
+        Else
+        
+            sOUText = replace(sOUText,"DC=","")
+            sOUText = replace(sOUText,"dc=","")
+            sOUText = replace(sOUText,"OU=","")
+            sOUText = replace(sOUText,"ou=","")
+            sOUText = replace(sOUText,",","/")
+            
+            If Level > 0 Then
+                For x = 1 To Level
+                    sOUText = "--" + sOUText
+                Next
+            End If
+            
+            objOption.Text = sOUText
+            
+            objOption.Value = MyNode.selectSingleNode("Path").text
+            ddOUList.Add(objOption) 
+        End If
+        
+        If MyNode.selectSingleNode("Path").text = oEnvironment.Item("MachineObjectOU") Then
+            objOption.selected = true
+        End If
+        
+        ' Check if current Node has child nodes
+        Dim ChildNodes
+        Set ChildNodes = MyNode.selectSingleNode("ChildOUs")
+        
+        If Not ChildNodes Is Nothing Then
+            CreateOUEntries ChildNodes, Level + 1
+        End If
+    Next
+End Sub
+
+Sub ButtonFinishClick
+    oEnvironment.Item("WizardComplete") = "Y"
+    oEnvironment.Item("OSDCOMPUTERNAME") = sComputerName.value
+    oEnvironment.Item("COLLECTIONID") = ddCollectionList.value
+    oEnvironment.Item("COMPUTERDESCRIPTION") = sComputerDescription.value
+    oEnvironment.Item("MACHINEOBJECTOU") = ddOUList.value
+    
+    oEnvironment.ListItem("Roles") = CreateObject("Scripting.Dictionary")
+    
+    ' Get selected Roles
+    For Each node In Document.getElementsByName("Roles")
+        If node.checked Then
+            Set objTmp = oEnvironment.ListItem("Roles")
+            objTmp.Add node.Value, ""
+            oEnvironment.ListItem("Roles") = objTmp
+        End If
+    Next
+   
+    window.Close
+End Sub    
+
+sub ButtonCancelClick
+	If Msgbox("Are you sure you want to cancel?",4,"Cancel wizard?") = vbYES Then
+		window.Close
+	End If
+end sub
+
+
+Sub PrintOut(strText)
+	txtStdOut.value = txtStdOut.value  & strText & VbCrLf
+End Sub
+
+Function ValidateComputerName
+	
+	If Len(sComputerName.value) > 15 then
+		ButtonFinish.disabled = true
+	ElseIf sComputerName.value = "" then
+		ButtonFinish.disabled = true
+	Else 
+	    ButtonFinish.disabled = false
+    End If
+    
+ End Function
+
+-->
+    </script>
+
+</head>
+<body language="VBScript">
+    <!-- Create a 2 x 3 table to place all of our content in. Makes resizing of windows easier -->
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="height: 100%;">
+        <!-- Content Area of Wizard -->
+        <tr valign="top">
+            <td colspan="2">
+                <div id="MyContentArea" class="ContentArea">
+                    <h1>
+                        Frontend for ConfigMgr 2007</h1>
+                    <span style="width: 95%;">
+                        <table cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td width="150">
+                                    Computer name:
+                                </td>
+                                <td>
+                                    <input type="text" id="sComputerName" name="sComputerName" size="40" onpropertychange="ValidateComputerName"
+                                        tabindex="1">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    Computer Description:
+                                </td>
+                                <td>
+                                    <input type="text" id="sComputerDescription" name="sComputerDescription" size="40"
+                                        tabindex="2">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    Organizational Unit:
+                                </td>
+                                <td>
+                                    <select name="ddOUList" tabindex="5">
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    OS Image:
+                                </td>
+                                <td>
+                                    <select name="ddCollectionList" tabindex="7">
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td valign="top">
+                                    Roles:
+                                </td>
+                                <td>
+                                    <div class="TreeList" id="RoleList" name="RoleList" style="height: 100px; overflow: auto;">
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td colspan="2">
+                                    Info:
+                                    <br>
+                                    <textarea name="txtStdOut" rows="5" cols="71" unselectable="off" tabindex="6"></textarea>
+                                </td>
+                            </tr>
+                        </table>
+                    </span>
+                </div>
+            </td>
+        </tr>
+        <!-- Footer of Wizard -->
+        <tr valign="middle">
+            <td class="CommandArea" id="RightWizardButtons" align="right" colspan="2">
+                <button accesskey="N" type="submit" id="buttonFinish" onclick="ButtonFinishClick">
+                    <u>F</u>inish</button>
+                <button accesskey="C" id="buttonCancel" onclick="ButtonCancelClick">
+                    <u>C</u>ancel</button>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

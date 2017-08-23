@@ -1,0 +1,878 @@
+<job id="FrontEnd">
+    <script language="VBScript" src="ZTIUtility.vbs" />
+    <script language="VBScript" src="ZTIDataAccess.vbs" />
+    <script language="VBScript">
+
+' //////////////////////////////////////////////////
+' //
+' // Script File:
+' //
+' //  Frontend.wsf
+' //
+' //   This script drives the Frontend for ConfigMgr 2007.
+' //   It's a clone of the original PrettyGoodFrontEnd
+' //   of Johan Arwidmark (http://PrettyGoodFrontEnd.codeplex.com
+' //
+' //   Most parts rewritten to work with the Deployment Webservice
+' //   and be conform with the new MDT 2010 script template
+' //
+' //   Author: Maik Koster
+' //   URL: http://mdtcustomizations.codeplex.com
+' //   
+' //   Disclaimer
+' //   This script is provided "AS IS" without express 
+' //   or implied warranty of any kind.
+' //
+' //////////////////////////////////////////////////
+
+
+Option Explicit
+RunNewInstance
+
+'//----------------------------------------------------------------------------
+'//
+'//  Global constant and variable declarations
+'//
+'//----------------------------------------------------------------------------
+
+' No global constants needed
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class FrontEnd
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+	Dim iRetVal
+
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+		' Initialization
+
+	    iRetVal = Success
+	    oEnvironment.Item("DeploymentMethod") = "SCCM"
+    	
+        ' Clear the oEnvironment Items used later on
+                    
+        oEnvironment.Item("OSDCOMPUTERNAME") = ""
+        oEnvironment.Item("COLLECTIONID") = ""
+        oEnvironment.ListItem("ROLE") = CreateObject("Scripting.Dictionary") 
+        oEnvironment.Item("COMPUTERDESCRIPTION") = ""
+        oEnvironment.Item("MACHINEOBJECTOU") = ""
+        oEnvironment.Item("ComputerID") = ""
+	End Sub
+	
+
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+	
+	    Dim iRetVal
+	    Dim sCmd
+	    Dim iCount
+	    Dim sAssignedSite
+	    Dim bKnownToSCCM, bUpdateComputer
+	    Dim sGetComputerName, sGetOU
+
+        iRetVal = Success
+
+	    '//----------------------------------------------------------------------------
+	    '//  Gather information
+	    '//----------------------------------------------------------------------------
+
+	    ' Process bootstrap rules
+    	
+	    sCmd = "wscript.exe """ & oUtility.ScriptDir & "\ZTIGather.wsf"" "
+        iRetVal = RunAndLog(sCmd, true)
+
+        ' Get assigned Site
+	    ' If SCCM Site information is not available in Active Directory
+	    ' uncomment the following 4 lines:
+	    ' sAssignedSite = GetAssignedSiteBySLP
+	    ' If sAssignedSite <> "" Then
+	    '    oEnvironment.Item("AssignedSite") = sAssignedSite
+	    ' End If	
+
+	    ' Get a list of OSD Collections
+	     GetOSDCollections
+
+	    ' Get a list of organizational units from Active Directory
+	    GetOUList
+    	
+	    ' Get a list of roles from the MDT database
+	    GetRoleList
+    	
+    	' Get role information for the Computer
+    	GetComputerRoles
+
+	    ' Check if the computer is known to SCCM
+
+	    bKnownToSCCM = IsComputerKnown
+    	
+	    If bKnownToSCCM = True Then
+		    oLogging.CreateEntry "Computer is known to SCCM", LogTypeInfo
+	    Else
+		    oLogging.CreateEntry "Computer is Not known to SCCM", LogTypeInfo
+	    End If
+
+    	
+    	' If the computer exists already in the MDT Database, get some more information
+    	If Not IsNothing(oEnvironment.Item("ComputerID")) Then
+    		oLogging.CreateEntry "Computer is known to MDT. Collecting more information.", LogTypeInfo
+    		
+    	    ' Check if the computer name exists in the MDT database
+        	sGetComputerName = GetSetting("OSDComputerName")
+    		
+    		If Not IsNothing(sGetComputerName) Then
+    	        oEnvironment.Item("OSDCOMPUTERNAME") = sGetComputerName	
+    	    Else
+    	        sGetComputerName = GetSetting("ComputerName")
+    		
+    		    If Not IsNothing(sGetComputerName) Then
+    	            oEnvironment.Item("OSDCOMPUTERNAME") = sGetComputerName	
+    	        End If
+    	    End If
+    	    
+    	    sGetOU = GetSetting("MachineObjectOU")
+    	    
+    	    If Not IsNothing(sGetOU) Then
+    	        oEnvironment.Item("MachineObjectOU") = sGetOU
+    	    End If
+    	Else
+    		oLogging.CreateEntry "Computer is not in MDT database", LogTypeInfo
+    	End If
+
+	    ' Start the Frontend HTA 
+	    oEnvironment.Item("WizardComplete") = "N"
+	    oLogging.CreateEntry "Start the Frontend HTA", LogTypeInfo
+    	
+	    sCmd = "mshta.exe " & Chr(34) & oUtility.ScriptDir & "\Frontend.hta" & Chr(34)
+
+        oLogging.CreateEntry "Executing: " & sCmd, LogTypeInfo
+        oShell.run sCmd,0,True
+        
+	    ' Make sure the deployment wizard completed
+
+	    If oEnvironment.Item("WizardComplete") <> "Y" Then
+		    oLogging.CreateEntry "ERROR - The Deployment Wizard was cancelled or did not complete successfully - Notifying User (Error Number = " & Err.Number & ") (Error Description: " & Err.Description & ").", LogTypeError
+		    msgbox "The Deployment Wizard was cancelled or did not complete successfully.  The deployment will not proceed."
+		    Exit Function
+	    End If
+    	
+	    ' Delete Computer from ConfigMgr if requested
+
+        If UCase(oEnvironment.Item("DeleteComputerFirst")) = "YES" Then
+	        sDeleteComputerInConfigMgr = DeleteComputerInConfigMgr
+	    End If
+
+        ' Add or Update Computer information in the MDT database
+        
+        UpdateComputer
+        SetSetting "OSDComputerName", oEnvironment.Item("OSDComputerName")
+        SetSetting "MachineObjectOU", oEnvironment.Item("MachineObjectOU")
+        UpdateRoles
+
+	    ' Add Computer to specified collection
+	    If AddComputerToCollection Then
+            ' Wait for Advertisement
+            oLogging.CreateEntry "Waiting for Advertisement", LogTypeInfo
+            WScript.Sleep 5000
+
+            For iCount = 1 To 25
+                oLogging.CreateEntry "Sleeping 5 seconds to wait for a Task Sequence advertisement (Attempt " & iCount & " of 25).", LogTypeInfo
+			    WScript.Sleep 5000
+
+			    If HasOSDAdvertisement Then
+				    oLogging.CreateEntry "Found a Task Sequnce advertisement, continuing ...", LogTypeInfo
+
+                    ' Reset all oEnvironment Items, they will be re-read by the Gather action later on
+                    
+                    oEnvironment.Item("OSDCOMPUTERNAME") = ""
+                    oEnvironment.Item("COLLECTIONID") = ""
+                    oEnvironment.ListItem("ROLE") = CreateObject("Scripting.Dictionary")
+                    oEnvironment.Item("COMPUTERDESCRIPTION") = ""
+                    oEnvironment.Item("MACHINEOBJECTOU") = ""
+                    oEnvironment.Item("ComputerID") = ""
+
+				    WScript.Sleep 15000  ' Wait 15 more seconds, just in case
+    				
+				    Exit For
+			    End If
+         	    Next
+         End If
+         
+         Main = iRetVal
+    End Function
+
+
+    'Returns the SCCM Assigned Site code from Active Directory for the IP Address of the current computer
+    Function GetAssignedSite
+        Dim oService
+        Dim oXML
+
+        ' Create the web service instance
+        Set oService = new WebService
+        oService.IniFile = oEnvironment.Item("RulesFile")
+        oService.SectionName = "GetSCCMAssignedSite"
+
+        ' Call the web service
+        Set oXML = oService.Query
+        If oXML is Nothing then
+	        oLogging.CreateEntry "Unable to call GetSCCMAssignedSite web service.", LogTypeWarning
+        Else
+            oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+            GetAssignedSite = UCase(oXML.SelectSingleNode("mk:string").Text)
+        End if
+    End Function
+
+    ' Returns the SCCM Assigned Site code from the Service Locator Point
+    ' Taken from the original MDT 2008 ZTIMediaHook.wsf
+    ' slightly modified for MDT 2010
+    Function GetAssignedSiteBySLP
+
+        Dim oAdapters
+        Dim oAdapter
+        Dim sElement
+        Dim i
+        Dim arrIPBytes
+        Dim arrSubnetBytes
+        Dim sSubnet
+        Dim index
+        Dim oService
+        Dim oXML
+        Dim sAssignedSite
+
+
+        ' Create the web service instance
+        Set oService = new WebService
+        oService.IniFile = oEnvironment.Item("RulesFile")
+        oService.SectionName = "GetSCCMAssignedSiteBySLP"
+
+        ' Check each IP/subnet looking for an assigned site
+        Set oAdapters = objWMI.ExecQuery("select * from Win32_NetworkAdapterConfiguration where IPEnabled = 1")
+        For each oAdapter in oAdapters
+    		
+	        If not (IsNull(oAdapter.IPAddress)) then
+		        i = 0
+		        For each sElement in oAdapter.IPAddress
+
+			        If sElement = "0.0.0.0" or Left(sElement, 7) = "169.254" or sElement = "" then
+				        oLogging.CreateEntry "Ignoring IP Address " & sElement, LogTypeInfo
+			        ElseIf Instr(sElement, ":") > 0 then
+				        oLogging.CreateEntry "Ignoring IPv6 Address " & sElement, LogTypeInfo
+			        Else
+
+				        ' Calculate the subnet number
+				        sSubnet = ""
+				        arrIPBytes = Split(sElement, ".")
+				        arrSubnetBytes = Split(oAdapter.IPSubnet(i), ".")
+				        For index = 0 to 3
+					        sSubnet = sSubnet & CStr( CInt(arrIPBytes(index)) and CInt(arrSubnetBytes(index)) ) & "."
+				        Next
+				        sSubnet = Mid(sSubnet, 1, Len(sSubnet) - 1)
+
+				        ' Call the web service
+				        oEnvironment.Item("SiteIP") = sElement
+				        oEnvironment.Item("SiteSubnet") = sSubnet
+				        oEnvironment.Item("SiteMACAddress") = oAdapter.MacAddress
+
+				        Set oXML = oService.Query
+				        If oXML is Nothing then
+					        oLogging.CreateEntry "Unable to query web GetAssignedSite webservice.", LogTypeWarning
+					        sAssignedSite = ""
+				        Else
+				            oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+					          sAssignedSite = oXML.SelectSingleNode("mk:string").Text
+				        End if
+
+				        If sAssignedSite <> "" then
+					        Exit For
+				        End if
+
+			        End if
+
+			        If sAssignedSite <> "" then
+				        Exit For
+			        End if
+
+			        i = i + 1
+		        Next
+	        End if
+        Next
+        
+        GetAssignedSiteBySLP = sAssignedSite
+    	
+    End Function
+
+    ' Returns a list of OSD Collections
+    Function GetOSDCollections
+	    Dim oService
+	    Dim oXML
+	    Dim sTaskSequenceList
+
+	    ' Create the web service instance
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "GetOSDCollections"
+
+	    ' Call the web service
+	    Set oXML = oService.Query
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "GetOSDCollections: Unable to call GetOSDCollections web service.", LogTypeWarning
+		    Exit Function
+	    Else
+	        'oXML.loadXML HTMLDecode(oXML.documentElement.Text)
+            oXML.save(oUtility.ScriptDir & "\TaskSequenceList.xml")
+	    End if
+    	
+	    GetOSDCollections = False
+
+    End Function
+
+    'Returns a list of OU from Active Directory
+    Function GetOUList
+
+	    oLogging.CreateEntry "Getting Organizational Units List", LogTypeInfo
+
+	    Dim oService
+	    Dim oXML
+	    Dim sGetOUList
+
+	    ' Create the web service instance
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "GetOUList"
+
+
+	    ' Call the web service
+
+	    Set oXML = oService.Query
+
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "GetOUList: Unable to query web service.", LogTypeWarning
+		    sOUList = ""
+	    Else
+            'oXML.loadXML HTMLDecode(oXML.documentElement.Text)
+            oXML.save(oUtility.ScriptDir & "\OUList.xml")
+	    End if
+
+	    GetOUList = sGetOUList
+    	
+    End Function
+
+    ' Returns a list of Roles from the MDT Database
+    Function GetRoleList
+
+	    oLogging.CreateEntry "Getting Role List", LogTypeInfo
+
+	    Dim oService
+	    Dim oXML
+	    Dim sRoleList
+
+	    ' Create the web service instance
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "GetRoleList"
+
+	    ' Call the web service
+
+	    Set oXML = oService.Query
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "GetRoleList: Unable to query web service.", LogTypeWarning
+		    sRoleList = ""
+	    Else
+            'oXML.loadXML HTMLDecode(oXML.documentElement.Text)
+            'oXML.save(oUtility.ScriptDir & "\RoleList.xml")
+            
+            ' Sort the Roles by Name
+            Dim oXSL                                                      
+            Dim oSortedRoles                                              
+            'Set oXML = oUtility.CreateXMLDOMObject                        
+            Set oXSL = oUtility.CreateXMLDOMObject                        
+            Set oSortedRoles = oUtility.CreateXMLDOMObject                
+                                                                          
+            ' Create XSL to sort webservice result                        
+            oXSL.LoadXML "<xsl:stylesheet version=""1.0"" xmlns:xsl=""http://www.w3.org/1999/XSL/Transform"" xmlns:mk=""http://maikkoster.com/Deployment"">" & _
+                            "  <xsl:template match=""mk:ArrayOfRoleIdentity"">" & _
+                            "    <xsl:copy>" & _                          
+                            "      <xsl:apply-templates>" & _       
+                            "        <xsl:sort select=""mk:Role""/>" & _  
+                            "      </xsl:apply-templates>" & _            
+                            "    </xsl:copy>" & _                         
+                            "  </xsl:template>" & _                       
+                            "  <xsl:template match=""*"">" & _            
+                            "    <xsl:copy>" & _                          
+                            "      <xsl:apply-templates/>" & _            
+                            "    </xsl:copy>" & _                         
+                            "  </xsl:template>" & _                       
+                            "</xsl:stylesheet>"                           
+                                                                          
+            ' Load webservice result into new XMLDOMObject                
+            'oXML.LoadXML oResult.xml                                      
+                                                                          
+            ' Transform XML based on XSL                                  
+            oXML.TransformNodeToObject oXSL, oSortedRoles                 
+                                                                          
+            ' Load transformed XML into Wizard pane                       
+            'MDTRoles.XMLDocument.LoadXML oSortedRoles.xml                 
+            oSortedRoles.Save(oUtility.ScriptDir & "\RoleList.xml")
+            
+	    End if
+
+        GetRoleList = sRoleList
+
+    End Function
+
+    ' Check wether the computer is known to SCCM
+    Function IsComputerKnown
+
+	    Dim oService
+	    Dim oXML
+
+	    ' Create the web service instance
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "IsComputerKnown"
+
+	    ' Make the web service call
+
+	    IsComputerKnown = false
+	    Set oXML = oService.Query
+
+	    oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "Unable to call IsComputerKnown web service.", LogTypeWarning
+	    ElseIf UCase(oXML.SelectSingleNode("mk:boolean").Text) = "TRUE" then
+		    IsComputerKnown = true
+	    End if
+
+    End Function
+    
+    ' Returns a single setting from the MDT Database 
+    Function GetSetting(Setting)
+        Dim oService
+	    Dim oXML
+        Dim Result
+        
+        Result = ""
+        
+        If Not IsNothing(Setting) Then
+            ' Set correct Type
+            If oEnvironment.Item("Type") <> "Computer" Then 
+                oEnvironment.Item("Type") = "Computer"
+            End If
+        
+            ' Set Setting
+            oEnvironment.Item("Setting") = Setting
+            
+            ' Create the web service instance
+	        Set oService = new WebService
+	        oService.IniFile = oEnvironment.Item("RulesFile")
+	        oService.SectionName = "GetSetting"
+
+	        ' Make the web service call
+	        Set oXML = oService.Query
+	        If oXML is Nothing then
+		        oLogging.CreateEntry "Unable to call GetSetting web service.", LogTypeWarning
+	        Else
+		    oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+	            Result = oXML.SelectSingleNode("mk:string").Text
+	        End if
+            
+        End If
+        
+        GetSetting = Result
+    End Function
+
+    ' Sets a single Setting in the MDT Database
+    Function SetSetting(Setting, Value)
+        Dim oService
+	    Dim oXML
+        Dim Result
+        
+        Result = ""
+        
+        If Not IsNothing(Setting) Then
+            ' Set correct Type
+            If oEnvironment.Item("Type") <> "Computer" Then 
+                oEnvironment.Item("Type") = "Computer"
+            End If
+        
+            ' Set Setting and Value
+            oEnvironment.Item("Setting") = Setting
+            oEnvironment.Item("Value") = Value
+            
+            ' Create the web service instance
+	        Set oService = new WebService
+	        oService.IniFile = oEnvironment.Item("RulesFile")
+	        oService.SectionName = "SetSetting"
+
+	        ' Make the web service call
+	        Set oXML = oService.Query
+	        If oXML is Nothing then
+		        oLogging.CreateEntry "Unable to call SetSetting web service.", LogTypeWarning
+	        Else
+	            oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+	            Result = oXML.SelectSingleNode("mk:string").Text
+	        End if
+            
+        End If
+        
+        SetSetting = Result
+    End Function
+    
+    ' Deletes the current computer from ConfigMgr
+    Function DeleteComputerInConfigMgr
+
+	    Dim oService
+	    Dim oXML
+
+	    ' Create the web service instance
+
+	    Set oService = New WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "DeleteComputerInConfigMgr"
+
+	    ' Make the web service call
+
+	    DeleteComputerInConfigMgr = False
+	    Set oXML = oService.Query
+	    oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+
+	    If oXML is Nothing Then
+		    oLogging.CreateEntry "Unable to call DeleteComputer web service.", LogTypeWarning
+	    ElseIf UCase(oXML.SelectSingleNode("mk:boolean").Text) = "TRUE" Then
+		    DeleteComputerInConfigMgr = True
+	    End If
+
+    End Function
+    
+    ' Updates the information from the FrontEnd in the MDT Database
+    Function UpdateComputer
+
+	    Dim oService
+	    Dim oXML
+	    Dim Result
+
+	    ' Create the web service instance
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "UpdateComputer"
+
+	    ' Make the web service call
+
+	    UpdateComputer = false
+	    Set oXML = oService.Query
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "Unable to query web service.", LogTypeWarning
+	    Else
+	        oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+	        Result = oXML.SelectSingleNode("mk:int").Text
+	        
+	        'Set ComputerID if Result is valid
+	        If Not IsNothing(Result) Then
+	            oEnvironment.Item("ComputerID") = Result
+	        End If
+	    End if
+
+        UpdateComputer = Result
+    End Function
+    
+    ' Adds the current Computer to the collection stored in the Property "CollectionID"
+    Function AddComputerToCollection
+	    Dim oService
+	    Dim oXML
+	    Dim Result
+
+	    Result = False
+    	
+	    ' Create the web service instance
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "AddComputerToCollection"
+
+	    ' Make the web service call
+	    Set oXML = oService.Query
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "Unable to call AddComputerToCollection web service.", LogTypeWarning
+	    Else
+	        oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+	        If UCase(oXML.SelectSingleNode("mk:boolean").Text) = "TRUE" Then
+	    	    oLogging.CreateEntry "Computer added to collection " & oEnvironment.Item("CollectionID") & ".", LogTypeInfo
+		    Result = True
+   	        Else
+                    oLogging.CreateEntry "Unable to add computer to collection.", LogTypeError
+                End If
+	    End If
+    	
+	    AddComputerToCollection =  Result
+    End Function
+
+    ' Checks if the current Computer has already an OSD Advertisement
+    Function HasOSDAdvertisement
+	    Dim oService
+	    Dim oXML
+	    Dim Result
+        
+	    Result = False
+	    ' Create the web service instance
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "HasOSDAdvertisement"
+
+	    ' Make the web service call
+	    Set oXML = oService.Query
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "Unable to call HasOSDAdvertisement web service.", LogTypeWarning
+	    Else
+		    oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+		    If UCase(oXML.SelectSingleNode("mk:boolean").Text) = "TRUE" then
+			    Result = True
+		    End If
+	    End If
+    	
+	    HasOSDAdvertisement = Result
+    End Function
+    
+    ' Returns a list of Roles from the MDT Database
+    Function GetComputerRoles
+
+	    oLogging.CreateEntry "Getting assigned Roles for computer", LogTypeInfo
+
+	    Dim oService
+	    Dim oXML
+	    Dim sRoleList
+
+	    ' Create the web service instance
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "GetComputerRoles"
+
+	    ' Call the web service
+
+	    Set oXML = oService.Query
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "GetComputerRoles: Unable to query web service.", LogTypeWarning
+		    sRoleList = ""
+	    Else
+            'oXML.loadXML HTMLDecode(oXML.documentElement.Text)
+            oXML.save(oUtility.ScriptDir & "\ComputerRoleList.xml")
+	    End if
+
+        GetComputerRoles = sRoleList
+
+    End Function
+
+    ' Update Roles
+    Function UpdateRoles
+
+	    Dim oService
+	    Dim oXML
+	    Dim oRole
+
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "DeleteAllRolesFromComputer"
+
+	    Set oXML = oService.Query
+
+	    If oXML is Nothing then
+		    oLogging.CreateEntry "Unable to Delete Roles from the MDT Database.", LogTypeWarning
+	    Else
+
+	    End if
+	    
+	    ' Then add all selected Roles again to the Database 
+	    
+	    Set oService = new WebService
+	    oService.IniFile = oEnvironment.Item("RulesFile")
+	    oService.SectionName = "AddRoleToComputer"
+	    
+	    For Each oRole in oEnvironment.ListItem("Roles")
+	        oEnvironment.Item("CurrentRole") = oRole
+	        
+	        Dim oXML2
+	        
+	        Set oXML2 = oService.Query
+
+	        If oXML2 is Nothing then
+		        oLogging.CreateEntry "Unable to add Role to the MDT Database.", LogTypeWarning
+	        Else
+
+	        End if
+	    Next
+	    
+    End Function
+	    
+    ' Common Helper Functions
+    
+    ' Rund and log a command
+    Function RunAndLog(sCmd, bDebuggable)
+
+	    Dim iRetVal
+	    Dim iShow
+
+
+	    If oLogging.Debug and bDebuggable then
+		    sCmd = sCmd & " /debug:true"
+		    iShow = 1
+	    Else
+		    iShow = 0
+	    End if
+
+
+	    oLogging.CreateEntry "About to run command: " & sCmd, LogTypeInfo
+
+	    On Error Resume Next
+	    iRetVal = oShell.Run(sCmd, iShow, true)
+	    If Err then
+		    iRetVal = Err.Number
+		    oLogging.CreateEntry "ERROR executing command " & sCmd & ": " & Err.Description & " (" & Err.Number & ")", LogTypeError
+	    ElseIf iRetVal = -2147021886 or iRetVal = 0 then
+		    oLogging.CreateEntry "Successfully executed command " & sCmd & ", rc = " & CStr(iRetVal), LogTypeInfo
+	    Else
+		    oLogging.CreateEntry "Non-zero return code executing command " & sCmd & ", rc = " & iRetVal, LogTypeWarning
+	    End if
+	    RunAndLog = iRetVal
+	    On Error Goto 0
+
+    End Function
+    
+    ' Checks if an element is empty/nothing depending on the element type
+    Function IsNothing(Value)
+        Dim vTest
+        Dim iArrayStart
+        Dim iCtr, nDim, nRows, nCols, x, y
+        Dim objLog, strErrMsg
+        Dim bFlag : bFlag = false
+
+        If IsEmpty(Value) Then
+            IsNothing = True
+            Exit Function
+        End If
+
+        If IsNull(Value) Then
+            IsNothing = True
+            Exit Function
+        End If
+
+        If VarType(Value) = vbString Then
+            If Value = "" Then
+                IsNothing = True
+                Exit Function
+            End If
+        End If
+
+        If IsNumeric(Value) Then
+            If Value = 0 Then
+                IsNothing = True
+                Exit Function
+            End If
+        End If
+
+        If IsObject(Value) Then
+            If Value Is Nothing Then
+                IsNothing = True
+                Exit Function
+            End If
+        End If
+
+        'Check for arrays
+
+        If IsArray(Value) Then
+            nDim = NoDim(Value)
+            'Handle mutli dim arrays
+            If nDim = 0 then
+                IsNothing = true
+                Exit Function
+            Elseif nDim = 1 then 'check single dim array
+                On Error Resume Next
+                'Handle Single dim arrays
+                vTest = Value(0)
+                iArrayStart = IIf(Err.Number = 0, 0, 1)
+                Err.Clear
+                On Error GoTo 0
+                For iCtr = iArrayStart To UBound(Value)
+                    If Not IsNothing(Value(iCtr)) Then
+                        'Has something in it
+                        bFlag = True
+                        Exit For
+                    End If
+                Next 
+
+                IsNothing = Not bFlag
+                Exit Function
+            Elseif nDim = 2 then
+                nRows = Ubound(Value, 2)+1
+                nCols = Ubound(Value, 1)+1 
+
+                for x = 0 to nRows - 1
+                    for y = 0 to nCols - 1
+                        If not IsNothing(Value(y,x)) then
+                            bFlag = True
+                            Exit For
+                        End if
+                    next
+                    if (bFlag) then
+                        Exit For
+                    end if
+                next
+                IsNothing = Not bFlag
+                Exit Function
+            End if
+        End If
+
+        IsNothing = False
+
+    End Function
+
+    ' These functions are used by the IsNothing routine
+
+    Function IIf(condition,value1,value2)
+        If condition Then IIf = value1 Else IIf = value2
+    End Function
+
+    '** will retun the number of dimensions of an array
+    Function NoDim(arr)
+
+        Dim n, mynextArray
+
+        On Error Resume Next
+        For n = 1 to 60
+            mynextArray = UBound(arr, n)
+            If err.number > 0 Then
+                n = n - 1
+                Exit For
+            End if
+        Next
+        On Error Goto 0
+
+        NoDim = n 
+
+    End Function
+
+End Class
+
+    </script>
+
+</job>
