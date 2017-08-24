@@ -1,0 +1,287 @@
+<job id="ZTI_ExecuteWebservice">
+   <runtime>
+      <named name="wsSection" 
+             helpstring="section name with webservice definition in ini file" 
+             type="string" 
+             required="true" />
+      <named name="wsIniFile" 
+             helpstring="ini file with webservice definitions" 
+             type="string" 
+             required="false" />
+      <named name="wsProperty" 
+             helpstring="Name of the property the result shall be written to" 
+             type="string" 
+             required="false" />
+      <named name="wsResultName" 
+             helpstring="Name of the result value" 
+             type="string" 
+             required="false" />
+      <named name="wsSelectionNamespace" 
+             helpstring="Defines the namespace of the webservice result" 
+             type="string" 
+             required="false" />
+      <named name="wsOverwrite"
+             helpstring="Defines if the evaluated properties shall overwrite already existing values. Default is Yes|True in opposite to the MDT behavior. (Yes/No|True/False)"
+             type="string"
+             required="false" />
+      <named name="wsStoreResult"
+             helpstring="Defines if the result of the webservice shall be stored in the wsResult variable for further processing by other scripts. Default is No|False. (Yes/No|True/False)"
+             type="string"
+             required="false" />             
+      <named name="wsProcessLists"
+             helpstring="Defines the behaviour how MDT lists are processed, when being used as a parameter. Default is No|False, which is the MDT default behaviour and only the first value will be processed. Yes/True will execute the webservice for each item in the list."
+             type="string"
+             required="false" />
+   </runtime>
+   <script language="VBScript" src="ZTIUtility.vbs"/>
+   <script language="VBScript" src="ZTIDataAccess.vbs"/>
+   <script language="VBScript">
+
+' //***************************************************************************
+' // ***** Script Header *****
+' //
+' //   Author: Maik Koster
+' //
+' //   URL: http://mdtcustomizations.codeplex.com
+' //
+' //   File:      ZTI_ExecuteWebservice.wsf
+' //
+' //   Version:   3
+' //
+' //   Purpose:   Generic script to execute a web service and optionally return a result
+' //
+' //   Usage:     cscript.exe ZTI_ExecuteWebservice.wsf /wsSection:value [/wsIniFile:value] [/wsProperty:value] [/wsResultName:value] [/wsSelectionNamespace] [/wsOverwrite] [/wsStoreResult] [wsProcessLists]
+' //
+' //
+' //   History:
+' //   1    MK    28.07.2010   Created initial script
+' //   2    MK    06.10.2010   changed parameter names 
+' //   3    MK    04.07.2102   Implement handling for MDT List Items
+' //
+' //
+' //   Disclaimer
+' //   This script is provided "AS IS" without express 
+' //   or implied warranty of any kind.
+' //
+' // ***** End Header *****
+' //***************************************************************************
+
+Option Explicit
+RunNewInstance
+
+'//----------------------------------------------------------------------------
+'//
+'// Global constant and variable declarations
+'//
+'//---------------------------------------------------------------------------- 
+
+
+
+'//----------------------------------------------------------------------------
+'// End declarations
+'//---------------------------------------------------------------------------- 
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class ZTI_ExecuteWebservice
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+	Dim iRetVal
+	Dim dicProperties
+    Dim oService, oXML
+     
+	
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+    
+		iRetVal = Success
+
+	End Sub
+	
+	
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+
+		' Define local variables
+		Dim sParameters, sParam, sListParametername, sWSParametername, sValue
+        Dim arrParameters
+	    Dim dicListParameterValues
+
+		' Check if SectionName has been provided
+		If oEnvironment.Item("wsSection") = "" Then
+			oLogging.CreateEntry "No Section Name supplied. Unable to query web service. Skipping further processing", LogTypeError
+			iRetVal = Failure
+			Main = iRetVal
+		End If
+		
+		' Create the web service instance
+		Set oService = new WebService
+
+        ' Specify Ini file
+		If oEnvironment.Item("wsIniFile") <> "" Then
+			oService.IniFile = oEnvironment.Item("wsIniFile")
+		ElseIf oEnvironment.Item("RulesFile") <> "" Then
+			oService.IniFile = oEnvironment.Item("RulesFile")
+        Else
+            oService.IniFile = "customsettings.ini"
+		End If
+
+		' Specify section
+		oService.SectionName = oEnvironment.Item("wsSection")
+        
+        ' Evaluate if lists need to be handled differently
+        If oEnvironment.Item("wsProcessLists") <> "" And (UCase(oEnvironment.Item("wsProcessLists")) = "YES" Or UCase(oEnvironment.Item("wsProcessLists")) = "TRUE") Then
+            oLogging.CreateEntry "Evaluation of Lists has been enabled. Checking parameters for MDT ListItems", LogTypeVerbose
+            ' Get paramters. Will be a string with a comma separated list of items
+            sParameters = oService.Parameters
+
+            ' convert to an Array
+            arrParameters = Split(sParameters, ",")
+
+            For Each sParam In arrParameters
+
+                ' strip off any Spaces and convert to uppercase
+                sParam = Trim(sParam)
+                sParam = UCase(sParam)
+
+                ' Check if parameter is a ListItem
+                If oEnvironment.ListItem(sParam).Count > 0 Then
+                    ' Save Listname, values and corresponding web service parameter
+                    sListParametername = sParam
+                    
+                    oLogging.CreateEntry "Found ListItem " & sListParametername, LogTypeVerbose
+                    ' We can handle only the first list
+                    Exit For
+                End If
+
+            Next
+
+            If sListParametername <> "" Then
+                ' Execute web service for each List entry
+                ' Get the Webservice Parameter name first
+                sWSParametername = oService.TranslateToColumnID(sListParametername)
+
+                ' Web Service parameter name needs to be different than the ListItem name
+                If UCase(sWSParametername) <> sListParametername Then
+                    oLogging.CreateEntry "Executing web service for each ListItem entry", LogTypeVerbose
+                    ' Update parameter name
+                    sParameters = Replace(sParameters, sListParametername, sWSParametername, 1, -1, 1)
+
+                    oService.Parameters = sParameters
+
+                    ' Now interate through the List and call the web service with each item
+                    Set dicListParameterValues = oEnvironment.ListItem(sListParametername)
+
+                    For Each sValue In dicListParameterValues.keys
+                        ' Set Web service parameter name to current value
+                        oEnvironment.Item(sWSParametername) = sValue
+
+                        ' Execute the web service
+                        QueryWebservice
+                    Next
+                Else
+                    oLogging.CreateEntry "Web Service parameter name must be different from the MDT ListItem property name. Unable to map individual listitem values. Executing web service with default behaviour.", LogTypeWarning
+                    QueryWebservice
+                End If
+
+            Else
+                ' No List found, just execute the web service
+                oLogging.CreateEntry "No ListItem parameters found.", LogTypeVerbose
+                QueryWebservice
+            End If
+
+        Else ' Default MDT behaviour
+
+            ' Execute Web service call
+            QueryWebservice
+        End If
+		
+		' Clear supplied Parameters to avoid side effects on future calls
+        oLogging.CreateEntry "Clear supplied parameters.", LogTypeInfo
+		oEnvironment.Item("wsSection") = ""
+		oEnvironment.Item("wsIniFile") = ""
+		oEnvironment.Item("wsProperty") = ""
+		oEnvironment.Item("wsResultName") = ""
+		oEnvironment.Item("wsStoreResult") = ""
+	
+		Main = iRetVal
+
+	End Function
+
+
+    ' Executes the web service call
+    Sub QueryWebservice
+        ' Define local variables
+        Dim sTarget
+
+        ' Call the web service
+		Set oXML = oService.Query		 
+
+		' Get the result
+		If oXML Is Nothing Then
+			oLogging.CreateEntry "Web service returned no data.", LogTypeError
+			iRetVal = Failure
+		Else
+			' Set the Selection Namespace
+			If oEnvironment.Item("wsSelectionNamespace") <> "" Then
+				oXML.setProperty "SelectionNamespaces", "xmlns:mk='" & oEnvironment.Item("wsSelectionNamespace") & "'"
+			Else
+				' Default to Deployment Web service
+				oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+			End If
+			
+			' If a Target Property been specified and OverWrite has not been set, try to evaluate the Result
+			If oEnvironment.Item("wsProperty") <> "" Then
+                oLogging.CreateEntry "Evaluating result.", LogTypeVerbose
+				sTarget = oEnvironment.Item("wsProperty")
+				
+                If oEnvironment.Item(sTarget) = "" Or (oEnvironment.Item(sTarget) <> "" And (UCase(oEnvironment.Item("wsOverwrite")) <> "FALSE" And UCase(oEnvironment.Item("wsOverwrite")) <> "NO")) Then
+
+				    If oEnvironment.Item("wsResultName") <> "" Then
+
+                        If Not oXML.SelectSingleNode("mk:" & oEnvironment.Item("wsResultName")) Is Nothing Then
+                            oEnvironment.Item(sTarget) = oXML.SelectSingleNode("mk:" & oEnvironment.Item("wsResultName")).Text
+                        Else
+                            oLogging.CreateEntry "'" & oEnvironment.Item("wsResultName") & "' not found in web service result.", LogTypeWarning
+                        End If
+					    
+				    Else
+
+                        If Not oXML.SelectSingleNode("mk:string") Is Nothing Then
+					        oEnvironment.Item(sTarget) = oXML.SelectSingleNode("mk:string").Text
+                        Else
+                            oLogging.CreateEntry "'string' not found in web service result.", LogTypeWarning
+                        End If
+
+				    End If
+
+                Else
+                    oLogging.CreateEntry "Property " & sTarget & " has already a value and can't be overwritten". LogTypeVerbose
+
+                End If
+			End If
+			
+			If UCase(oEnvironment.Item("wsStoreResult")) = "YES" Or UCase(oEnvironment.Item("wsStoreResult")) = "TRUE" Then
+				' Store web service result in MDT property wsResult to enable processing by other scripts
+                oLogging.CreateEntry "Storing XML result blob in 'wsResult' property", LogTypeVerbose
+				oEnvironment.Item("wsResult") = oXML.xml
+			End If
+		End If
+    End Sub
+End Class
+
+   </script>
+</job>
+

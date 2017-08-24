@@ -1,0 +1,180 @@
+<job id="ZTI_ExecuteWebservice">
+   <runtime>
+      <named name="wsSection" 
+             helpstring="section name with webservice definition in ini file" 
+             type="string" 
+             required="true" />
+      <named name="wsIniFile" 
+             helpstring="ini file with webservice definitions" 
+             type="string" 
+             required="false" />
+      <named name="wsProperty" 
+             helpstring="Name of the property the result shall be written to" 
+             type="string" 
+             required="false" />
+      <named name="wsResultName" 
+             helpstring="Name of the result value" 
+             type="string" 
+             required="false" />
+      <named name="wsSelectionNamespace" 
+             helpstring="Defines the namespace of the webservice result" 
+             type="string" 
+             required="false" />
+      <named name="wsOverwrite"
+             helpstring="Defines if the evaluated properties shall overwrite already existing values. Default is Yes|True in opposite to the MDT behavior. (Yes/No|True/False)"
+             type="string"
+             required="false" />
+      <named name="wsStoreResult"
+             helpstring="Defines if the result of the webservice shall be stored in the wsResult variable for further processing by other scripts. Default is No|False. (Yes/No|True/False)"
+             type="string"
+             required="false" />             
+   </runtime>
+   <script language="VBScript" src="ZTIUtility.vbs"/>
+   <script language="VBScript" src="ZTIDataAccess.vbs"/>
+   <script language="VBScript">
+
+' //***************************************************************************
+' // ***** Script Header *****
+' //
+' //   Author: Maik Koster
+' //
+' //   URL: http://mdtcustomizations.codeplex.com
+' //
+' //   File:      ZTI_ExecuteWebservice.wsf
+' //
+' //   Version:   2
+' //
+' //   Purpose:   Generic script to execute a web service and optionally return a result
+' //
+' //   Usage:     ZTI_ExecuteWebservice.wsf /wsSection:value [/wsIniFile:value] [/wsProperty:value] [/wsResultName:value] [/wsSelectionNamespace] [/wsOverwrite] [/wsStoreResult]
+' //
+' //
+' //   History:
+' //   1    MK    28.07.2010   Created initial script
+' //   2    MK    06.10.2010   changed parameter names 
+' //
+' //
+' //   Disclaimer
+' //   This script is provided "AS IS" without express 
+' //   or implied warranty of any kind.
+' //
+' // ***** End Header *****
+' //***************************************************************************
+
+Option Explicit
+RunNewInstance
+
+'//----------------------------------------------------------------------------
+'//
+'// Global constant and variable declarations
+'//
+'//---------------------------------------------------------------------------- 
+
+
+
+'//----------------------------------------------------------------------------
+'// End declarations
+'//---------------------------------------------------------------------------- 
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class ZTI_ExecuteWebservice
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+	Dim iRetVal
+	Dim dicProperties 
+	
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+
+		iRetVal = Success
+
+	End Sub
+	
+	
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+		' Define local variables
+		Dim sTarget, sElement, sColumn
+		Dim oService, oXML, oNode
+	
+		' Check if SectionName has been provided
+		If oEnvironment.Item("wsSection") = "" Then
+			oLogging.CreateEntry "No Section Name supplied. Unable to query web service. Skipping further processing", LogTypeError
+			iRetVal = Failure
+			Main = iRetVal
+		End If
+		
+		' Create the web service instance
+		Set oService = new WebService
+		If oEnvironment.Item("wsIniFile") <> "" Then
+			oService.IniFile = oEnvironment.Item("wsIniFile")
+		Else
+			oService.IniFile = oEnvironment.Item("RulesFile")
+		End If
+		
+		oService.SectionName = oEnvironment.Item("wsSection")
+
+		' Call the web service
+		Set oXML = oService.Query		 
+
+		' Get the result
+		If oXML is Nothing then
+			oLogging.CreateEntry "Web service returned no data.", LogTypeError
+			iRetVal = Failure
+		Else
+			' Set the Selection Namespace
+			If oEnvironment.Item("wsSelectionNamespace") <> "" Then
+				oXML.setProperty "SelectionNamespaces", "xmlns:mk='" & oEnvironment.Item("wsSelectionNamespace") & "'"
+			Else
+				' Default to Deployment Web service
+				oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+			End If
+			
+			' If a Target Property been specified and OverWrite has not been set, try to evaluate the Result
+			If oEnvironment.Item("wsProperty") <> "" Then
+				sTarget = oEnvironment.Item("wsProperty")
+				
+                If oEnvironment.Item(sTarget) = "" Or (oEnvironment.Item(sTarget) <> "" And (UCase(oEnvironment.Item("wsOverwrite")) <> "NO" Or UCase(oEnvironment.Item("wsOverwrite")) <> "FALSE")) Then
+				    If oEnvironment.Item("wsResultName") <> "" Then
+					    oEnvironment.Item(sTarget) = oXML.SelectSingleNode("mk:" & oEnvironment.Item("wsResultName")).Text
+				    Else
+					    oEnvironment.Item(sTarget) = oXML.SelectSingleNode("mk:string").Text
+				    End If
+                End If
+			End If
+			
+			If UCase(oEnvironment.Item("wsStoreResult")) = "YES" Or UCase(oEnvironment.Item("wsStoreResult")) = "TRUE" Then
+				' Store web service result in MDT property wsResult to enable processing by other scripts
+				oEnvironment.Item("wsResult") = oXML.xml
+			End If
+		End If
+		
+		' Clear supplied Parameters to avoid side effects on future calls
+        oLogging.CreateEntry "Clear supplied parameters.", LogTypeInfo
+		oEnvironment.Item("wsSection") = ""
+		oEnvironment.Item("wsIniFile") = ""
+		oEnvironment.Item("wsProperty") = ""
+		oEnvironment.Item("wsResultName") = ""
+		oEnvironment.Item("wsStoreResult") = ""
+	
+		Main = iRetVal
+
+	End Function
+End Class
+
+   </script>
+</job>
+

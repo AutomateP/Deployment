@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configurationsets>
+  <!-- 
+       Sample file to demonstrate an Offline Domain Join 
+  -->
+  <configurationset id="ODJ">
+    <operations>
+      <!-- Updates the unattend.xml file for an offline domain join-->
+      <file source="%OSDAnswerFilePath%" operation="update" type="xml">
+        <rules>
+          <include condition="All">
+            <rule property="PHASE" operation="equals" value="PREINSTALL" />
+            <rule property="OfflineDomainJoinBlob" operator="notempty" />
+          </include>>
+        </rules>
+        <node operation="delete">
+          <xpath><![CDATA[//settings[@pass="specialize"]/component[@name="Microsoft-Windows-UnattendedJoin"]/Identification]]></xpath>
+        </node>
+        <node operation="create">
+          <xpath><![CDATA[//settings[@pass="specialize"]/component[@name="Microsoft-Windows-UnattendedJoin"]]]></xpath>
+          <node position="child">
+            <Identification>
+              <Provisioning>
+                <AccountData>%OfflineDomainJoinBlob%</AccountData>
+              </Provisioning>
+            </Identification>
+          </node>
+        </node>
+      </file>
+    </operations>
+  </configurationset>
+</configurationsets>

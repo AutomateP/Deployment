@@ -1,0 +1,125 @@
+<job id="ZTIOfflineDomainJoin">
+	<script language="VBScript" src="ZTIUtility.vbs"/>
+	<script language="VBScript">
+
+' // ***************************************************************************
+' // 
+' // Copyright (c) Maik Koster.  All rights reserved.
+' //
+' // File:      ZTIOfflineDomainJoin.wsf
+' // 
+' // Version:   1.0
+' // 
+' // Purpose:   Join Computer offline to Domain
+' // 
+' // Usage:     cscript.exe [//nologo] ZTIOfflineDomainJoin.wsf [/debug:true]
+' //
+' // Comment:   Script requires DJoin information stored in a Textfile
+' //            named ComputerName.txt.
+' //            
+' // 
+' // ***************************************************************************
+
+Option Explicit
+RunNewInstance
+
+
+'//----------------------------------------------------------------------------
+'//  Global Constants
+'//----------------------------------------------------------------------------
+
+' No global constants needed
+
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class ZTIOfflineDomainJoin
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+	Dim iRetVal
+
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+
+	End Sub
+	
+	
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+	
+	    Dim sCmd
+	    Dim sFile
+	    Dim sFilePath
+	    Dim sWindowsPath
+	    
+	    
+	    If (oEnvironment.Item("OSVersion") = "WINPE" And Left(oEnvironment.Item("ImageBuild"),3) > "6.0") Or oEnvironment.item("OSCurrentVersion") > "6.0" Then
+            'Get Computername
+            If oEnvironment.Item("OSDComputername") <> "" Then
+                sFile = oEnvironment.Item("OSDComputername") & ".txt"
+            Else
+                oLogging.CreateEntry "No Computername available. Skipping further processing.", LogTypeError
+                Exit Function
+            End If
+            
+            'Find File with Offline Domain Join information
+            'Assuming Computername.txt
+            iRetVal = oUtility.FindFile(sFile, sFilePath)
+			If iRetVal <> Success then
+				oLogging.CreateEntry "Unable to find File " & sFile & ".", LogTypeError
+				Exit Function
+			End if
+			oLogging.CreateEntry "Found File " & sFile, LogTypeInfo
+			
+			'Get Windows Directory
+			If oEnvironment.Item("OSVersion") = "WINPE" Then
+			    'Assume Windows Directory on %DestinationLogicalDrive%\Windows
+			    If oEnvironment.Item("DestinationLogicalDrive") = "" Then
+			        oLogging.CreateEntry "Could not determine Destination Drive", LogTypeError
+			        Exit Function
+		        End If
+		        
+		        sWindowsPath = 	oEnvironment.Item("DestinationLogicalDrive") & "\Windows"
+			else
+			    sWindowsPath = Substitute("%WINDIR%")
+			End If
+            
+            'Create Command
+            sCmd = "DJoin.exe /REQUESTODJ /LOADFILE " & sFilePath & " /WINDOWSPATH " & sWindowsPath
+            
+            If oEnvironment.Item("OSVersion") <> "WINPE" Then
+                'Join Local OS
+                sCmd = sCmd & " /LOCALOS"
+            End If
+            
+            'Execute Command
+            iRetVal = oUtility.RunWithHeartbeat(sCmd)
+			If iRetVal <> 0 and iRetVal <> 3010 then
+				oLogging.CreateEntry "Non-zero return code from DJoin command, rc = " & iRetVal, LogTypeInfo
+			End if
+	    
+	        oLogging.CreateEntry "Computer has joined the Domain", LogTypeInfo
+	    Else
+	        oLogging.CreateEntry "Offline Domain Join requires Windows 7 or Windows Server 2008 R2",LogTypeError
+	    End If
+	
+        Main = Success
+        
+	End Function
+
+End Class
+
+	</script>
+</job>
