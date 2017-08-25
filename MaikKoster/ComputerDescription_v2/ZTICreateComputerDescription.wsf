@@ -1,0 +1,74 @@
+<job id="ZTICreateComputerDescription">
+	<script language="VBScript" src="ZTIUtility.vbs"/>
+	<script language="VBScript">
+
+' // ***************************************************************************
+' // 
+' // Copyright (c) Maik Koster.  All rights reserved.
+' //
+' // File:      ZTICreateComputerDescription.wsf
+' // 
+' // Version:   1.0
+' // 
+' // Purpose:   Example to create a Computer Description based on the Serial 
+' //            number and current Date
+' // 
+' // Usage:     cscript.exe [//nologo] ZTICreateComputerDescription.wsf [/debug:true]
+' // 
+' // ***************************************************************************
+
+Option Explicit
+RunNewInstance
+
+
+'//----------------------------------------------------------------------------
+'//  Global Constants
+'//----------------------------------------------------------------------------
+
+' No global constants needed
+
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class ZTICreateComputerDescription
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+
+	End Sub
+	
+	
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+	
+	    Dim sDescription
+	    
+	    'Create Description
+	    sDescription = "SN=" & oEnvironment.Item("SerialNumber")
+	    sDescription = sDescription & " - BuiltDate=" & Date
+	    
+	    'Store Description for future processing
+	    oEnvironment.Item("Description") = sDescription
+	
+        Main = Success
+        
+	End Function
+
+End Class
+
+	</script>
+</job>

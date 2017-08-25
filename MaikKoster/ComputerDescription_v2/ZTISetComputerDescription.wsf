@@ -1,0 +1,90 @@
+<job id="ZTISetComputerDescription">
+	<script language="VBScript" src="ZTIUtility.vbs"/>
+	<script language="VBScript" src="ZTIDataAccess.vbs"/>
+	<script language="VBScript">
+
+' // ***************************************************************************
+' // 
+' // Copyright (c) Maik Koster.  All rights reserved.
+' //
+' // File:      ZTISetComputerDescription.wsf
+' // 
+' // Version:   2
+' //
+' // History:   1 - MK - Initial Script
+' //            2 - MK - Added property to specify the ini File
+' // 
+' // Purpose:   Set the Computer Description in Active Directory
+' // 
+' // Usage:     cscript.exe [//nologo] ZTISetComputerDescription.wsf [/debug:true]
+' // 
+' // ***************************************************************************
+
+Option Explicit
+RunNewInstance
+
+
+'//----------------------------------------------------------------------------
+'//  Global Constants
+'//----------------------------------------------------------------------------
+
+' No global constants needed
+
+
+'//----------------------------------------------------------------------------
+'//  Main Class
+'//----------------------------------------------------------------------------
+
+Class ZTISetComputerDescription
+
+	'//----------------------------------------------------------------------------
+	'//  Class instance variable declarations
+	'//----------------------------------------------------------------------------
+
+	Dim iRetVal
+
+
+	'//----------------------------------------------------------------------------
+	'//  Constructor to initialize needed global objects
+	'//----------------------------------------------------------------------------
+
+	Private Sub Class_Initialize
+
+	End Sub
+	
+	
+	'//----------------------------------------------------------------------------
+	'//  Main routine
+	'//----------------------------------------------------------------------------
+
+	Function Main
+	
+	    Dim oService
+	    Dim oXML
+
+        iRetVal = Failure
+    
+        ' Create the web service instance
+	    Set oService = New WebService
+	    oService.iniFile = "Customsettings.ini"
+	    oService.SectionName = "SetComputerDescription"
+
+	    ' Make the web service call
+	    Set oXML = oService.Query
+	    If oXML Is Nothing then
+		    oLogging.CreateEntry "Unable to call SetComputerDescription web service.", LogTypeWarning
+	    Else
+	        oXML.setProperty "SelectionNamespaces", "xmlns:mk='http://maikkoster.com/Deployment'"
+		    If UCase(oXML.SelectSingleNode("mk:boolean").Text) = "TRUE" Then
+			    iRetVal = Success
+		    End If
+	    End If
+	
+        Main = iRetVal
+        
+	End Function
+	
+End Class
+
+	</script>
+</job>
