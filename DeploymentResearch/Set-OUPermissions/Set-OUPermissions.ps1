@@ -15,6 +15,9 @@ Author - Mikael Nystrom
 Author - Johan Arwidmark
     Twitter: @jarwidmark
     Blog   : http://deploymentresearch.com
+    The syntax to run it is: Set-OUPermissions.ps1 -Account CM_JD –TargetOU "OU=Workstations,OU=ViaMonstra"
+    Account is the account in AD for which you want to assign permissions, TargetOU is for which OU.
+    You don’t need to specify the domain, the script finds your domain.
 #>
 
 Param
